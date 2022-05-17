@@ -1,9 +1,14 @@
 package com.ozangunalp;
 
-import java.util.concurrent.TimeUnit;
+import java.io.IOException;
+import java.nio.file.Path;
+import java.time.Duration;
+
+import javax.inject.Inject;
 
 import org.keycloak.adapters.installed.KeycloakInstalled;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.openshift.cloud.api.kas.DefaultApi;
 import com.openshift.cloud.api.kas.invoker.ApiClient;
 import com.openshift.cloud.api.kas.invoker.ApiException;
@@ -11,9 +16,18 @@ import com.openshift.cloud.api.kas.invoker.Configuration;
 import com.openshift.cloud.api.kas.invoker.auth.HttpBearerAuth;
 import com.openshift.cloud.api.kas.models.KafkaRequestList;
 import picocli.CommandLine.Command;
+import picocli.CommandLine.Parameters;
 
 @Command(name = "rhoas", mixinStandardHelpOptions = true)
 public class RhoasCommand implements Runnable {
+
+    @Inject
+    ObjectMapper objectMapper;
+
+    private static final Duration MIN_TOKEN_VALIDITY = Duration.ofSeconds(30);
+
+    @Parameters(paramLabel = "tokens-file", description = "File for storing obtained tokens.", defaultValue = "./tokens.json")
+    Path tokensPath;
 
     @Override
     public void run() {
@@ -57,21 +71,43 @@ public class RhoasCommand implements Runnable {
             // TODO set resteasyclient depending on the platform
             // keycloak.setResteasyClient();
 
-            // opens desktop browser
-            // TODO this will create a callback server on localhost on a random port using Undertow. We may need to change that to a vertx server.
-            keycloak.loginDesktop();
-
-            // No exception : return token string to use in send backend request
-            // TODO store access token and refresh token
-            System.out.println("Refresh token : " + keycloak.getRefreshToken());
-            System.out.println("Access token : " + keycloak.getTokenString());
+            RhoasTokens storedTokens = getStoredTokenResponse();
 
             // ensure token is valid for at least 30 seconds
-            long minValidity = 30L;
-            return keycloak.getTokenString(minValidity, TimeUnit.SECONDS);
-
+            if (storedTokens != null && storedTokens.accessTokenIsValidFor(MIN_TOKEN_VALIDITY)) {
+                return storedTokens.access_token;
+            } else if (storedTokens != null && storedTokens.refreshTokenIsValidFor(MIN_TOKEN_VALIDITY)) {
+                keycloak.refreshToken(storedTokens.refresh_token);
+                storeTokenResponse(keycloak);
+                return keycloak.getTokenString();
+            } else {
+                // opens desktop browser
+                // TODO this will create a callback server on localhost on a random port using Undertow. We may need to change that to a vertx server.
+                keycloak.loginDesktop();
+                storeTokenResponse(keycloak);
+                return keycloak.getTokenString();
+            }
         } catch (Exception e) {
             throw new RuntimeException(e);
+        }
+    }
+
+    RhoasTokens storeTokenResponse(KeycloakInstalled keycloak) throws IOException {
+        RhoasTokens rhoasTokens = new RhoasTokens();
+        rhoasTokens.refresh_token = keycloak.getRefreshToken();
+        rhoasTokens.access_token = keycloak.getTokenString();
+        long timeMillis = System.currentTimeMillis();
+        rhoasTokens.refresh_expiration = timeMillis + keycloak.getTokenResponse().getRefreshExpiresIn() * 1000;
+        rhoasTokens.access_expiration = timeMillis + keycloak.getTokenResponse().getExpiresIn() * 1000;
+        objectMapper.writeValue(tokensPath.toFile(), rhoasTokens);
+        return rhoasTokens;
+    }
+
+    RhoasTokens getStoredTokenResponse() {
+        try {
+            return objectMapper.readValue(tokensPath.toFile(), RhoasTokens.class);
+        } catch (Exception e) {
+            return null;
         }
     }
 
