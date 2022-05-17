@@ -1,0 +1,10 @@
+{
+  "realm": "redhat-external",
+  "auth-server-url": "https://sso.redhat.com/auth/",
+  "ssl-required": "external",
+  "resource": "rhoas-cli-prod",
+  "public-client": true,
+  "confidential-port": 0,
+  "use-resource-role-mappings": true,
+  "enable-pkce": true
+}
