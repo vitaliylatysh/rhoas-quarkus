@@ -14,7 +14,10 @@ import com.openshift.cloud.api.kas.invoker.ApiClient;
 import com.openshift.cloud.api.kas.invoker.ApiException;
 import com.openshift.cloud.api.kas.invoker.Configuration;
 import com.openshift.cloud.api.kas.invoker.auth.HttpBearerAuth;
+import com.openshift.cloud.api.kas.models.KafkaRequest;
 import com.openshift.cloud.api.kas.models.KafkaRequestList;
+import com.openshift.cloud.api.kas.models.KafkaRequestPayload;
+
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Parameters;
 
@@ -26,7 +29,7 @@ public class RhoasCommand implements Runnable {
 
     private static final Duration MIN_TOKEN_VALIDITY = Duration.ofSeconds(30);
 
-    @Parameters(paramLabel = "tokens-file", description = "File for storing obtained tokens.", defaultValue = "./tokens.json")
+    @Parameters(paramLabel = "tokens-file", description = "File for storing obtained tokens.", defaultValue = "C:\\tokens.json")
     Path tokensPath;
 
     @Override
@@ -34,7 +37,12 @@ public class RhoasCommand implements Runnable {
         ApiClient defaultClient = getApiClient();
 
         DefaultApi apiInstance = new DefaultApi(defaultClient);
+        Boolean async = true; // Boolean | Perform the action in an asynchronous manner
+        KafkaRequestPayload kafkaRequestPayload = new KafkaRequestPayload(); // KafkaRequestPayload | Kafka data
+        kafkaRequestPayload.setName("my-kafka-instance3");
         try {
+            KafkaRequest resultKafkaCreate = apiInstance.createKafka(async, kafkaRequestPayload);
+            System.out.println(resultKafkaCreate);
             KafkaRequestList result = apiInstance.getKafkas(null, null, "created_at", "");
             System.out.println(result);
         } catch (ApiException e) {
@@ -99,7 +107,8 @@ public class RhoasCommand implements Runnable {
         long timeMillis = System.currentTimeMillis();
         rhoasTokens.refresh_expiration = timeMillis + keycloak.getTokenResponse().getRefreshExpiresIn() * 1000;
         rhoasTokens.access_expiration = timeMillis + keycloak.getTokenResponse().getExpiresIn() * 1000;
-        objectMapper.writeValue(tokensPath.toFile(), rhoasTokens);
+        // objectMapper.writeValue(tokensPath.toFile(), rhoasTokens);
+        System.out.println(rhoasTokens.access_token);
         return rhoasTokens;
     }
 
@@ -111,4 +120,8 @@ public class RhoasCommand implements Runnable {
         }
     }
 
+    public static void main(String[] args) {
+        RhoasCommand rhoasCommand = new RhoasCommand();
+        rhoasCommand.run();
+    }
 }
