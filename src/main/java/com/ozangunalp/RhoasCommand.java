@@ -4,8 +4,6 @@ import java.io.IOException;
 import java.time.Duration;
 import java.util.Objects;
 
-import javax.inject.Inject;
-
 import org.keycloak.adapters.installed.KeycloakInstalled;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -29,8 +27,7 @@ public class RhoasCommand implements Runnable {
     private static final Duration MIN_TOKEN_VALIDITY = Duration.ofSeconds(30);
     private static final String API_CLIENT_BASE_PATH = "https://api.openshift.com";
 
-    @Inject
-    ObjectMapper objectMapper;
+    ObjectMapper objectMapper = new ObjectMapper();
 
     private static CommandParameters parameters = new CommandParameters();
 
@@ -51,12 +48,11 @@ public class RhoasCommand implements Runnable {
     }
 
     private KafkaRequest createInstance(String name){
-        Boolean async = true; // Boolean | Perform the action in an asynchronous manner
         KafkaRequestPayload kafkaRequestPayload = new KafkaRequestPayload(); // KafkaRequestPayload | Kafka data
         kafkaRequestPayload.setName(name);
 
         try {
-            return apiInstance.createKafka(async, kafkaRequestPayload);
+            return apiInstance.createKafka(true, kafkaRequestPayload);
         } catch (ApiException e) {
             System.err.println("Exception when calling DefaultApi#createKafka");
             System.err.println("Status code: " + e.getCode());
@@ -86,15 +82,15 @@ public class RhoasCommand implements Runnable {
      * From https://github.com/redhat-developer/app-services-sdk-java/tree/main/packages/kafka-management-sdk#getting-started
      */
     private ApiClient getApiClient() {
-        ApiClient defaultClient = Configuration.getDefaultApiClient();
-        defaultClient.setBasePath(API_CLIENT_BASE_PATH);
+        ApiClient apiClient = Configuration.getDefaultApiClient();
+        apiClient.setBasePath(API_CLIENT_BASE_PATH);
 
         String tokenString = getBearerToken();
 
         // Configure HTTP bearer authorization: Bearer
-        HttpBearerAuth Bearer = (HttpBearerAuth) defaultClient.getAuthentication("Bearer");
-        Bearer.setBearerToken(tokenString);
-        return defaultClient;
+        HttpBearerAuth bearer = (HttpBearerAuth) apiClient.getAuthentication("Bearer");
+        bearer.setBearerToken(tokenString);
+        return apiClient;
     }
 
     /**
@@ -107,22 +103,22 @@ public class RhoasCommand implements Runnable {
             // TODO set resteasyclient depending on the platform
             // keycloak.setResteasyClient();
 
-            // RhoasTokens storedTokens = getStoredTokenResponse();
+            RhoasTokens storedTokens = getStoredTokenResponse();
 
             // ensure token is valid for at least 30 seconds
-            // if (storedTokens != null && storedTokens.accessTokenIsValidFor(MIN_TOKEN_VALIDITY)) {
-            //     return storedTokens.access_token;
-            // } else if (storedTokens != null && storedTokens.refreshTokenIsValidFor(MIN_TOKEN_VALIDITY)) {
-            //     keycloak.refreshToken(storedTokens.refresh_token);
-            //     storeTokenResponse(keycloak);
-            //     return keycloak.getTokenString();
-            // } else {
+            if (storedTokens != null && storedTokens.accessTokenIsValidFor(MIN_TOKEN_VALIDITY)) {
+                return storedTokens.access_token;
+            } else if (storedTokens != null && storedTokens.refreshTokenIsValidFor(MIN_TOKEN_VALIDITY)) {
+                keycloak.refreshToken(storedTokens.refresh_token);
+                storeTokenResponse(keycloak);
+                return keycloak.getTokenString();
+            } else {
                 // opens desktop browser
                 // TODO this will create a callback server on localhost on a random port using Undertow. We may need to change that to a vertx server.
                 keycloak.loginDesktop();
                 storeTokenResponse(keycloak);
                 return keycloak.getTokenString();
-        //     }
+            }
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
@@ -135,17 +131,17 @@ public class RhoasCommand implements Runnable {
         long timeMillis = System.currentTimeMillis();
         rhoasTokens.refresh_expiration = timeMillis + keycloak.getTokenResponse().getRefreshExpiresIn() * 1000;
         rhoasTokens.access_expiration = timeMillis + keycloak.getTokenResponse().getExpiresIn() * 1000;
-        // objectMapper.writeValue(tokensPath.toFile(), rhoasTokens);
+        objectMapper.writeValue(parameters.tokensPath.toFile(), rhoasTokens);
         return rhoasTokens;
     }
 
-    // RhoasTokens getStoredTokenResponse() {
-    //     try {
-    //         return objectMapper.readValue(tokensPath.toFile(), RhoasTokens.class);
-    //     } catch (Exception e) {
-    //         return null;
-    //     }
-    // }
+    RhoasTokens getStoredTokenResponse() {
+        try {
+            return objectMapper.readValue(parameters.tokensPath.toFile(), RhoasTokens.class);
+        } catch (Exception e) {
+            return null;
+        }
+    }
 
     public static void main(String[] args) {
         new CommandLine(parameters).parseArgs(args);
