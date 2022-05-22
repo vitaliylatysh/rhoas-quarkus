@@ -16,6 +16,7 @@
     <quarkus.platform.version>2.9.0.Final</quarkus.platform.version>
     <surefire-plugin.version>3.0.0-M5</surefire-plugin.version>
     <kafka-management-sdk.version>0.20.0</kafka-management-sdk.version>
+    <kafka-instance-sdk.version>0.20.2</kafka-instance-sdk.version>
     <keycloak-installed-adapter.version>18.0.0</keycloak-installed-adapter.version>
   </properties>
   <dependencyManagement>
@@ -46,6 +47,12 @@
       <groupId>com.redhat.cloud</groupId>
       <artifactId>kafka-management-sdk</artifactId>
       <version>${kafka-management-sdk.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>com.redhat.cloud</groupId>
+      <artifactId>kafka-instance-sdk</artifactId>
+      <version>${kafka-instance-sdk.version}</version>
+      <scope>compile</scope>
     </dependency>
     <dependency>
       <groupId>org.keycloak</groupId>
