@@ -2,8 +2,11 @@ package com.ozangunalp;
 
 import java.io.IOException;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Objects;
 
+import com.openshift.cloud.api.kas.auth.models.TopicSettings;
 import org.keycloak.adapters.installed.KeycloakInstalled;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -26,6 +29,7 @@ public class RhoasCommand implements Runnable {
 
     private static final Duration MIN_TOKEN_VALIDITY = Duration.ofSeconds(30);
     private static final String API_CLIENT_BASE_PATH = "https://api.openshift.com";
+    private static final String API_INSTANCE_CLIENT_BASE_PATH = "https://identity.api.openshift.com";
 
     ObjectMapper objectMapper = new ObjectMapper();
 
@@ -33,7 +37,8 @@ public class RhoasCommand implements Runnable {
 
     private ApiClient defaultClient = getApiClient();
     private DefaultApi apiInstance = new DefaultApi(defaultClient);
-    private TopicsApi apiInstanceTopic = new TopicsApi();
+    private com.openshift.cloud.api.kas.auth.invoker.ApiClient defaultInstanceClient = getApiInstanceClient();
+    private TopicsApi apiInstanceTopic = new TopicsApi(defaultInstanceClient);
 
     @Override
     public void run() {
@@ -67,6 +72,12 @@ public class RhoasCommand implements Runnable {
     private Topic createInstanceTopic(String topicName){
         NewTopicInput topicInput = new NewTopicInput();
         topicInput.setName(topicName);
+        TopicSettings ts = new TopicSettings();
+        List list = new ArrayList<>();
+        ts.setConfig(list);
+        ts.setNumPartitions(1);
+        topicInput.setSettings(ts);
+
 
         try {
             return apiInstanceTopic.createTopic(topicInput);
@@ -90,6 +101,31 @@ public class RhoasCommand implements Runnable {
         // Configure HTTP bearer authorization: Bearer
         HttpBearerAuth bearer = (HttpBearerAuth) apiClient.getAuthentication("Bearer");
         bearer.setBearerToken(tokenString);
+        return apiClient;
+    }
+
+    private com.openshift.cloud.api.kas.auth.invoker.ApiClient getApiInstanceClient() {
+        com.openshift.cloud.api.kas.auth.invoker.ApiClient apiClient
+                = com.openshift.cloud.api.kas.auth.invoker.Configuration.getDefaultApiClient();
+
+        // https://admin-server-my-instanc-ca-nv-d-aqfmd-jmum-g.bf2.kafka.rhcloud.com/api/v1/topics
+        //                      my-instanc-ca-nv-d-aqfmd-jmum-g.bf2.kafka.rhcloud.com:443
+        String serverUrl = null;
+        try {
+            serverUrl = "https://admin-server-" + apiInstance.getKafkas(null, null, null,null).getItems().get(0).getBootstrapServerHost();
+        } catch (ApiException e) {
+            e.printStackTrace();
+        }
+        apiClient.setBasePath(serverUrl);
+
+        String tokenString = getBearerToken();
+
+        // Configure HTTP bearer authorization: Bearer
+        com.openshift.cloud.api.kas.auth.invoker.auth.OAuth bearer =
+                (com.openshift.cloud.api.kas.auth.invoker.auth.OAuth) apiClient.getAuthentication("Bearer");
+        bearer.setAccessToken(tokenString);
+//        HttpBearerAuth auth = (HttpBearerAuth) apiClient.getAuthentication("Bearer");
+//        auth.setBearerToken(tokenString);
         return apiClient;
     }
 
