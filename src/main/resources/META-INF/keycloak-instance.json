@@ -1,0 +1,10 @@
+{
+  "realm": "rhoas",
+  "auth-server-url": "https://identity.api.openshift.com/auth/",
+  "ssl-required": "external",
+  "resource": "strimzi-ui",
+  "public-client": true,
+  "confidential-port": 0,
+  "use-resource-role-mappings": true,
+  "enable-pkce": true
+}

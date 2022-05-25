@@ -1,6 +1,7 @@
 package com.ozangunalp;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -44,7 +45,7 @@ public class RhoasCommand implements Runnable {
     public void run() {
         if(Objects.nonNull(parameters)){
             if(Objects.nonNull(parameters.instanceName)){
-                System.out.println(createInstance(parameters.instanceName));
+//                System.out.println(createInstance(parameters.instanceName));
             }
             if(Objects.nonNull(parameters.instanceTopic)){
                 System.out.println(createInstanceTopic(parameters.instanceTopic));
@@ -96,7 +97,7 @@ public class RhoasCommand implements Runnable {
         ApiClient apiClient = Configuration.getDefaultApiClient();
         apiClient.setBasePath(API_CLIENT_BASE_PATH);
 
-        String tokenString = getBearerToken();
+        String tokenString = getBearerToken(null);
 
         // Configure HTTP bearer authorization: Bearer
         HttpBearerAuth bearer = (HttpBearerAuth) apiClient.getAuthentication("Bearer");
@@ -118,7 +119,8 @@ public class RhoasCommand implements Runnable {
         }
         apiClient.setBasePath(serverUrl);
 
-        String tokenString = getBearerToken();
+//        String tokenString = getBearerToken("META-INF/keycloak-instance.json");
+        String tokenString = "eyJhbGciOiJSUzI1NiIsInR5cCIgOiAiSldUIiwia2lkIiA6ICJnakluN0lUY3BrMGlMN0QwTU9jT2xZVkc5c1pwOWR2c2dBOHJUb2FWd0s0In0.eyJleHAiOjE2NTM0NzU5ODYsImlhdCI6MTY1MzQ3NTY4NiwianRpIjoiZDI4OTBhZDItNjQwNy00ZGViLTliOWUtNWYwMDY0YWI0Y2JlIiwiaXNzIjoiaHR0cHM6Ly9pZGVudGl0eS5hcGkub3BlbnNoaWZ0LmNvbS9hdXRoL3JlYWxtcy9yaG9hcyIsInN1YiI6IjI2OWU0YjJiLWY1YzItNGYyYy04MGIzLTI2ZmY1MWIxOGVhMyIsInR5cCI6IkJlYXJlciIsImF6cCI6InNydmMtYWNjdC1lMDBjNDU0Ny0wYTBiLTRkMTYtYTVhYi1mZjQ5ODU4ODg3ODEiLCJhY3IiOiIxIiwicmVhbG1fYWNjZXNzIjp7InJvbGVzIjpbIm9mZmxpbmVfYWNjZXNzIiwiZGVmYXVsdC1yb2xlcy1yaG9hcyIsInVtYV9hdXRob3JpemF0aW9uIl19LCJzY29wZSI6Im9wZW5pZCBwcm9maWxlIGVtYWlsIiwiY2xpZW50SG9zdCI6IjE3Ni4zNi45LjM5IiwiY2xpZW50SWQiOiJzcnZjLWFjY3QtZTAwYzQ1NDctMGEwYi00ZDE2LWE1YWItZmY0OTg1ODg4NzgxIiwiZW1haWxfdmVyaWZpZWQiOmZhbHNlLCJyaC11c2VyLWlkIjoiNTUxNzQ3OTUiLCJyaC1vcmctaWQiOiIxNTk5MDgxMSIsInByZWZlcnJlZF91c2VybmFtZSI6InNlcnZpY2UtYWNjb3VudC1zcnZjLWFjY3QtZTAwYzQ1NDctMGEwYi00ZDE2LWE1YWItZmY0OTg1ODg4NzgxIiwiY2xpZW50QWRkcmVzcyI6IjE3Ni4zNi45LjM5IiwidXNlcm5hbWUiOiJzZXJ2aWNlLWFjY291bnQtc3J2Yy1hY2N0LWUwMGM0NTQ3LTBhMGItNGQxNi1hNWFiLWZmNDk4NTg4ODc4MSJ9.QpGUA2922N78BeL2LKWZOc7w1xX169SET7Ofp85W6eSyYoJQ7-_9hGNqpdIlrvY2ZOHfVWklNxiLjvelMgQvjz1k8AQKa4QfpwkdRzantdpk0AyIFuw6OXjlwM9ixsusWFA0h9EDvXjIl4LA_GTmlB4bm1fv4wK759YXF1GDX0rLj26Tc5E_TwcK6NauVEgTuHC77UZqmjAJnNv1Z_uKm_oOVTkWyvZnoawSaUM7BwvmW5Jmc30kYk8Ayq5fXb0rpX2537sdtgg7Ivl0zhvv5IHGaE32-SI9lrb1fCsslpPgwWPmdIENbq8raOvav-0htJ8jIwQNQw89bR6NvipIlQ";
 
         // Configure HTTP bearer authorization: Bearer
         com.openshift.cloud.api.kas.auth.invoker.auth.OAuth bearer =
@@ -132,14 +134,21 @@ public class RhoasCommand implements Runnable {
     /**
      * From https://www.keycloak.org/docs/latest/securing_apps/#_installed_adapter
      */
-    private String getBearerToken() {
+    private String getBearerToken(String fileName) {
         try {
-            // reads the configuration from classpath: META-INF/keycloak.json
-            KeycloakInstalled keycloak = new KeycloakInstalled();
+            KeycloakInstalled keycloak;
+            RhoasTokens storedTokens = null;
+            if (fileName == null) {
+                // reads the configuration from classpath: META-INF/keycloak.json
+                keycloak = new KeycloakInstalled();
+                storedTokens = getStoredTokenResponse(null);
+            } else {
+                InputStream is = Thread.currentThread().getContextClassLoader().getResourceAsStream(fileName);
+                keycloak = new KeycloakInstalled(is);
+            }
             // TODO set resteasyclient depending on the platform
             // keycloak.setResteasyClient();
 
-            RhoasTokens storedTokens = getStoredTokenResponse();
 
             // ensure token is valid for at least 30 seconds
             if (storedTokens != null && storedTokens.accessTokenIsValidFor(MIN_TOKEN_VALIDITY)) {
@@ -171,9 +180,13 @@ public class RhoasCommand implements Runnable {
         return rhoasTokens;
     }
 
-    RhoasTokens getStoredTokenResponse() {
+    RhoasTokens getStoredTokenResponse(String fileName) {
         try {
-            return objectMapper.readValue(parameters.tokensPath.toFile(), RhoasTokens.class);
+            if (fileName == null) {
+                return objectMapper.readValue(parameters.tokensPath.toFile(), RhoasTokens.class);
+            } else {
+                return objectMapper.readValue(parameters.tokensPath2.toFile(), RhoasTokens.class);
+            }
         } catch (Exception e) {
             return null;
         }
