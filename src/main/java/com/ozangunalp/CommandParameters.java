@@ -17,4 +17,7 @@ public class CommandParameters {
 
     @Option(names="--create-topic", paramLabel = "Create instance topic", description = "Create instance topic")
     String instanceTopic;
+
+    @Option(names="--create-service-account", paramLabel = "Create service account", description = "Create service account")
+    String serviceAccount;
 }
