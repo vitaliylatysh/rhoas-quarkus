@@ -8,8 +8,7 @@ import java.util.*;
 import com.openshift.cloud.api.kas.SecurityApi;
 import com.openshift.cloud.api.kas.auth.models.ConfigEntry;
 import com.openshift.cloud.api.kas.auth.models.TopicSettings;
-import com.openshift.cloud.api.kas.models.ServiceAccount;
-import com.openshift.cloud.api.kas.models.ServiceAccountRequest;
+import com.openshift.cloud.api.kas.models.*;
 import org.keycloak.adapters.installed.KeycloakInstalled;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -21,8 +20,6 @@ import com.openshift.cloud.api.kas.invoker.ApiClient;
 import com.openshift.cloud.api.kas.invoker.ApiException;
 import com.openshift.cloud.api.kas.invoker.Configuration;
 import com.openshift.cloud.api.kas.invoker.auth.HttpBearerAuth;
-import com.openshift.cloud.api.kas.models.KafkaRequest;
-import com.openshift.cloud.api.kas.models.KafkaRequestPayload;
 
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
@@ -38,29 +35,31 @@ public class RhoasCommand implements Runnable {
 
     ObjectMapper objectMapper = new ObjectMapper();
 
-    private static CommandParameters parameters = new CommandParameters();
+    private static final CommandParameters parameters = new CommandParameters();
 
-    private ApiClient defaultClient = getApiClient();
-    private DefaultApi apiInstance = new DefaultApi(defaultClient);
-    private com.openshift.cloud.api.kas.auth.invoker.ApiClient defaultInstanceClient = getDefaultInstanceClient();
-    private TopicsApi apiInstanceTopic = new TopicsApi(defaultInstanceClient);
+    private final ApiClient kafkaManagementClient = getApiClient();
+    private final com.openshift.cloud.api.kas.auth.invoker.ApiClient kafkaInstanceClient = getKafkaInstanceClient();
+    private final DefaultApi managementAPI = new DefaultApi(kafkaManagementClient);
+    private final TopicsApi topicsAPI = new TopicsApi(kafkaInstanceClient);
+    private final SecurityApi securityAPI = new SecurityApi(kafkaManagementClient);
 
-    private SecurityApi securityApi = new SecurityApi(defaultClient);
     private String secondAccessToken = null;
-
 
     @Override
     public void run() {
         if (Objects.nonNull(parameters)) {
+            ServiceAccount serviceAccount;
+            if (Objects.nonNull(parameters.serviceAccount)) {
+                serviceAccount = createServiceAccount(parameters.serviceAccount);
+            } else {
+                serviceAccount = getServiceAccount();
+            }
+            secondAccessToken = getSecondToken(serviceAccount);
             if (Objects.nonNull(parameters.instanceName)) {
 //                System.out.println(createInstance(parameters.instanceName));
             }
             if (Objects.nonNull(parameters.instanceTopic)) {
                 System.out.println(createInstanceTopic(parameters.instanceTopic));
-            }
-            if (Objects.nonNull(parameters.serviceAccount)) {
-                ServiceAccount serviceAccount = createServiceAccount(parameters.serviceAccount);
-                secondAccessToken = getSecondToken(serviceAccount);
             }
         }
     }
@@ -77,11 +76,12 @@ public class RhoasCommand implements Runnable {
         }};
         String acceptString = "application/json";
         String contentTypeString = "application/x-www-form-urlencoded";
-        GenericType<LinkedHashMap<String, String>> returnTypeClass = new GenericType<>() {};
+        GenericType<LinkedHashMap<String, String>> returnTypeClass = new GenericType<>() {
+        };
         LinkedHashMap<String, String> res = null;
         try {
             String URL = "/auth/realms/rhoas/protocol/openid-connect/token";
-            res = defaultInstanceClient.invokeAPI(URL,
+            res = kafkaInstanceClient.invokeAPI(URL,
                     "POST",
                     null,
                     null,
@@ -109,7 +109,7 @@ public class RhoasCommand implements Runnable {
         kafkaRequestPayload.setName(name);
 
         try {
-            return apiInstance.createKafka(true, kafkaRequestPayload);
+            return managementAPI.createKafka(true, kafkaRequestPayload);
         } catch (ApiException e) {
             System.err.println("Exception when calling DefaultApi#createKafka");
             System.err.println("Status code: " + e.getCode());
@@ -130,8 +130,18 @@ public class RhoasCommand implements Runnable {
         ts.setNumPartitions(1);
         topicInput.setSettings(ts);
 
+        String serverUrl = null;
         try {
-            Topic topic = apiInstanceTopic.createTopic(topicInput);
+            serverUrl = "https://admin-server-" + managementAPI.getKafkas(null, null, null, null).getItems().get(0).getBootstrapServerHost();
+        } catch (ApiException e) {
+            e.printStackTrace();
+        }
+
+        try {
+            topicsAPI.getApiClient().setBasePath(serverUrl);
+//            secondAccessToken = "eyJhbGciOiJSUzI1NiIsInR5cCIgOiAiSldUIiwia2lkIiA6ICJnakluN0lUY3BrMGlMN0QwTU9jT2xZVkc5c1pwOWR2c2dBOHJUb2FWd0s0In0.eyJleHAiOjE2NTM1NzMzNzUsImlhdCI6MTY1MzU3MzA3NSwianRpIjoiNjNmNmY5YjQtZTI3Yy00ZmQ1LTlhOTctNWNlNDA2NGI1YjI4IiwiaXNzIjoiaHR0cHM6Ly9pZGVudGl0eS5hcGkub3BlbnNoaWZ0LmNvbS9hdXRoL3JlYWxtcy9yaG9hcyIsInN1YiI6IjFmNDIyN2Q1LWY0ODMtNGVmYy1hYjExLTE4YTY2ZDg0OGFmZiIsInR5cCI6IkJlYXJlciIsImF6cCI6InNydmMtYWNjdC0wZjcxMTM5NS0zYTRlLTQ1ZjMtODFhOS01ZGVlZDY2NzYxNmYiLCJhY3IiOiIxIiwicmVhbG1fYWNjZXNzIjp7InJvbGVzIjpbIm9mZmxpbmVfYWNjZXNzIiwiZGVmYXVsdC1yb2xlcy1yaG9hcyIsInVtYV9hdXRob3JpemF0aW9uIl19LCJzY29wZSI6Im9wZW5pZCBwcm9maWxlIGVtYWlsIiwiY2xpZW50SWQiOiJzcnZjLWFjY3QtMGY3MTEzOTUtM2E0ZS00NWYzLTgxYTktNWRlZWQ2Njc2MTZmIiwiY2xpZW50SG9zdCI6IjE3Ni4zNi45LjM5IiwiZW1haWxfdmVyaWZpZWQiOmZhbHNlLCJyaC11c2VyLWlkIjoiNTUxNzQ3OTUiLCJyaC1vcmctaWQiOiIxNTk5MDgxMSIsInByZWZlcnJlZF91c2VybmFtZSI6InNlcnZpY2UtYWNjb3VudC1zcnZjLWFjY3QtMGY3MTEzOTUtM2E0ZS00NWYzLTgxYTktNWRlZWQ2Njc2MTZmIiwiY2xpZW50QWRkcmVzcyI6IjE3Ni4zNi45LjM5IiwidXNlcm5hbWUiOiJzZXJ2aWNlLWFjY291bnQtc3J2Yy1hY2N0LTBmNzExMzk1LTNhNGUtNDVmMy04MWE5LTVkZWVkNjY3NjE2ZiJ9.GlMkLIkVmDl_VM-ytMoEGKsza0gXAb8rJSWEOUmCZcVIaJ6lcHgboxx1Sb9zE8gMPirxss2Ydyk3mnW72wc2v1ySiHinJwvwRSDNxQaxwbuiB4PpHt6hbMg26LW7fZCAQm1tEPGdSyzOywGfyFoMBr2DtUJbzGQpNocq9ZsM9nq7Jc_GwtkxOJt_LBUn0legMT-BqPjLMPSa5PE9aXpgl6lWP-oNLiTRG0qmvzfOa4irySIMev2z9K5gf6w2as6lPKU64SZZos2l7fOhOxhm-ykj-ap7P1ryhdPjnwGHsQiOrXgfzPTxXnBd0J9i3QyAMa9BkKjVaeQ8XTPaJ9e_IA";
+            topicsAPI.getApiClient().setAccessToken(secondAccessToken);
+            Topic topic = topicsAPI.createTopic(topicInput);
             System.out.println(">>> topic: " + topic);
             return topic;
         } catch (com.openshift.cloud.api.kas.auth.invoker.ApiException e) {
@@ -157,14 +167,16 @@ public class RhoasCommand implements Runnable {
         return apiClient;
     }
 
-    private ServiceAccount createServiceAccount(String name) {
-        ServiceAccountRequest serviceAccountRequest = new ServiceAccountRequest();
-        serviceAccountRequest.setName(name);
-        serviceAccountRequest.setDescription("My super service account");
-
+    private ServiceAccount getServiceAccount() {
         ServiceAccount serviceAccount = null;
         try {
-            serviceAccount = securityApi.createServiceAccount(serviceAccountRequest);
+            ServiceAccountList serviceAccountList = securityAPI.getServiceAccounts(null);
+            if (serviceAccountList.getItems().isEmpty()) {
+                serviceAccount = createServiceAccount("New Service Account");
+            } else {
+                ServiceAccountListItem item = serviceAccountList.getItems().get(0);
+                serviceAccount = securityAPI.getServiceAccountById(item.getId());
+            }
         } catch (ApiException e) {
             e.printStackTrace();
         }
@@ -172,7 +184,22 @@ public class RhoasCommand implements Runnable {
         return serviceAccount;
     }
 
-    private com.openshift.cloud.api.kas.auth.invoker.ApiClient getDefaultInstanceClient() {
+    private ServiceAccount createServiceAccount(String name) {
+        ServiceAccountRequest serviceAccountRequest = new ServiceAccountRequest();
+        serviceAccountRequest.setName(name);
+        serviceAccountRequest.setDescription("My super service account");
+
+        ServiceAccount serviceAccount = null;
+        try {
+            serviceAccount = securityAPI.createServiceAccount(serviceAccountRequest);
+        } catch (ApiException e) {
+            e.printStackTrace();
+        }
+
+        return serviceAccount;
+    }
+
+    private com.openshift.cloud.api.kas.auth.invoker.ApiClient getKafkaInstanceClient() {
         com.openshift.cloud.api.kas.auth.invoker.ApiClient apiClient
                 = com.openshift.cloud.api.kas.auth.invoker.Configuration.getDefaultApiClient();
 
