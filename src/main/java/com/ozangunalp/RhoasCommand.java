@@ -1,7 +1,9 @@
 package com.ozangunalp;
 
+import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.util.*;
 
@@ -32,6 +34,7 @@ public class RhoasCommand implements Runnable {
     private static final Duration MIN_TOKEN_VALIDITY = Duration.ofSeconds(30);
     private static final String API_CLIENT_BASE_PATH = "https://api.openshift.com";
     private static final String API_INSTANCE_CLIENT_BASE_PATH = "https://identity.api.openshift.com";
+    private static final String SA_FILE_NAME = System.getProperty("user.dir") + File.separator + ".rhosak-sa.json";
 
     ObjectMapper objectMapper = new ObjectMapper();
 
@@ -170,18 +173,31 @@ public class RhoasCommand implements Runnable {
     private ServiceAccount getServiceAccount() {
         ServiceAccount serviceAccount = null;
         try {
-            ServiceAccountList serviceAccountList = securityAPI.getServiceAccounts(null);
-            if (serviceAccountList.getItems().isEmpty()) {
-                serviceAccount = createServiceAccount("New Service Account");
+            // check if "~/.rhosak-sa.json" file exists
+            File saFile = new File(SA_FILE_NAME);
+            if (saFile.exists()) {
+                // read client_id & client_secret
+                serviceAccount  = objectMapper.readValue(saFile, ServiceAccount.class);
             } else {
-                ServiceAccountListItem item = serviceAccountList.getItems().get(0);
-                serviceAccount = securityAPI.getServiceAccountById(item.getId());
+                String newServiceAccountName = "new-service-account";
+                serviceAccount = createServiceAccount(newServiceAccountName);
+                if (serviceAccount == null) {
+                    throw new RuntimeException("Can't create service account: " + newServiceAccountName);
+                } else {
+                    saveServiceAccountToFile(serviceAccount);
+                }
             }
-        } catch (ApiException e) {
+        } catch (IOException e) {
             e.printStackTrace();
         }
 
         return serviceAccount;
+    }
+
+    private void saveServiceAccountToFile(ServiceAccount serviceAccount) throws IOException {
+        Path saFile = Path.of(SA_FILE_NAME);
+        serviceAccount.setCreatedAt(null); // otherwise .rhosak-sa.json file will be broken
+        objectMapper.writeValue(saFile.toFile(), serviceAccount);
     }
 
     private ServiceAccount createServiceAccount(String name) {
