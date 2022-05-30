@@ -34,7 +34,7 @@ import picocli.CommandLine;
 import picocli.CommandLine.Command;
 
 @Command(name = "rhosak", mixinStandardHelpOptions = true)
-public class rhoasak implements Callable<Integer> {
+public class rhosak implements Callable<Integer> {
     
     private static final Duration MIN_TOKEN_VALIDITY = Duration.ofSeconds(30);
     private static final String API_CLIENT_BASE_PATH = "https://api.openshift.com";
@@ -148,7 +148,7 @@ public class rhoasak implements Callable<Integer> {
 
     public static void main(String[] args) {
         new CommandLine(parameters).parseArgs(args);
-        int exitCode = new CommandLine(new rhoasak()).execute(args);
+        int exitCode = new CommandLine(new rhosak()).execute(args);
         System.exit(exitCode);
     }
 }
