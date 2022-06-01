@@ -4,14 +4,13 @@
 //DEPS info.picocli:picocli:4.6.3
 //DEPS com.fasterxml.jackson.core:jackson-core:2.13.3
 //DEPS com.fasterxml.jackson.core:jackson-annotations:2.13.3
-//SOURCES ./RhoasTokens.java
-//SOURCES ./CommandParameters.java
 //FILES ../../../../resources/META-INF/keycloak.json
 
 package com.redhat.rhosak;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Objects;
 import java.util.concurrent.Callable;
@@ -34,30 +33,48 @@ import picocli.CommandLine;
 import picocli.CommandLine.Command;
 
 @Command(name = "rhosak", mixinStandardHelpOptions = true)
-public class rhosak implements Callable<Integer> {
-    
+public class Rhosak implements Callable<Integer> {
+
+    private final ObjectMapper objectMapper;
+
+    private final KeycloakInstalled keycloak;
+    private final ApiClient managementAPIClient;
+    private final DefaultApi managementAPI;
+    private final TopicsApi apiInstanceTopic;
+
+    public Rhosak() {
+        this.objectMapper = new ObjectMapper();
+        InputStream config = Thread.currentThread().getContextClassLoader().getResourceAsStream("keycloak.json");
+        this.keycloak = new KeycloakInstalled(config);
+        this.managementAPIClient = getManagementAPIClient();
+        this.managementAPI = new DefaultApi(managementAPIClient);
+        this.apiInstanceTopic = new TopicsApi();
+    }
+
+    @CommandLine.Option(names = "-tf, --tokens-file", paramLabel = "tokens-file", description = "File for storing obtained tokens.", defaultValue = "credentials.json")
+    Path tokensPath;
+
+    @CommandLine.Option(names = "--create-instance", paramLabel = "Create kafka instance", description = "Create kafka instance")
+    String instanceName;
+
+    @CommandLine.Option(names = "--create-topic", paramLabel = "Create instance topic", description = "Create instance topic")
+    String instanceTopic;
+
     private static final Duration MIN_TOKEN_VALIDITY = Duration.ofSeconds(30);
     private static final String API_CLIENT_BASE_PATH = "https://api.openshift.com";
 
-    private final ObjectMapper objectMapper = new ObjectMapper();
-    private static final CommandParameters parameters = new CommandParameters();
-
-    private final ApiClient managementAPIClient = getManagementAPIClient();
-    private final DefaultApi managementAPI = new DefaultApi(managementAPIClient);
-    private final TopicsApi apiInstanceTopic = new TopicsApi();
-
     @Override
     public Integer call() {
-            if(Objects.nonNull(parameters.instanceName)){
-                System.out.println(createInstance(parameters.instanceName));
-            }
-            if(Objects.nonNull(parameters.instanceTopic)){
-                System.out.println(createInstanceTopic(parameters.instanceTopic));
-            }
-            return 0;
+        if (Objects.nonNull(instanceName)) {
+            System.out.println(createInstance(instanceName));
+        }
+        if (Objects.nonNull(instanceTopic)) {
+            System.out.println(createInstanceTopic(instanceTopic));
+        }
+        return 0;
     }
 
-    private KafkaRequest createInstance(String name){
+    private KafkaRequest createInstance(String name) {
         KafkaRequestPayload kafkaRequestPayload = new KafkaRequestPayload(); // KafkaRequestPayload | Kafka data
         kafkaRequestPayload.setName(name);
 
@@ -74,7 +91,7 @@ public class rhosak implements Callable<Integer> {
         return null;
     }
 
-    private Topic createInstanceTopic(String topicName){
+    private Topic createInstanceTopic(String topicName) {
         NewTopicInput topicInput = new NewTopicInput();
         topicInput.setName(topicName);
 
@@ -100,12 +117,6 @@ public class rhosak implements Callable<Integer> {
 
     private String getBearerToken() {
         try {
-            // reads the configuration from classpath: META-INF/keycloak.json
-            InputStream config = Thread.currentThread().getContextClassLoader().getResourceAsStream("keycloak.json");
-            KeycloakInstalled keycloak = new KeycloakInstalled(config);
-            // TODO set resteasyclient depending on the platform
-//             keycloak.setResteasyClient();
-
             RhoasTokens storedTokens = getStoredTokenResponse();
 
             // ensure token is valid for at least 30 seconds
@@ -113,13 +124,9 @@ public class rhosak implements Callable<Integer> {
                 return storedTokens.access_token;
             } else if (storedTokens != null && storedTokens.refreshTokenIsValidFor(MIN_TOKEN_VALIDITY)) {
                 keycloak.refreshToken(storedTokens.refresh_token);
-                storeTokenResponse(keycloak);
                 return keycloak.getTokenString();
             } else {
-                // opens desktop browser
-                // TODO this will create a callback server on localhost on a random port using Undertow. We may need to change that to a vertx server.
                 keycloak.loginDesktop();
-                storeTokenResponse(keycloak);
                 return keycloak.getTokenString();
             }
         } catch (Exception e) {
@@ -127,28 +134,54 @@ public class rhosak implements Callable<Integer> {
         }
     }
 
-    RhoasTokens storeTokenResponse(KeycloakInstalled keycloak) throws IOException {
+    public static class RhoasTokens {
+
+        public String refresh_token;
+        public String access_token;
+        public Long access_expiration;
+        public Long refresh_expiration;
+
+        boolean accessTokenIsValidFor(Duration duration) {
+            return (access_expiration) - duration.toMillis() >= System.currentTimeMillis();
+        }
+
+        boolean refreshTokenIsValidFor(Duration duration) {
+            return (refresh_expiration) - duration.toMillis() >= System.currentTimeMillis();
+        }
+    }
+
+    private RhoasTokens storeTokenResponse(KeycloakInstalled keycloak) throws IOException {
         RhoasTokens rhoasTokens = new RhoasTokens();
         rhoasTokens.refresh_token = keycloak.getRefreshToken();
         rhoasTokens.access_token = keycloak.getTokenString();
         long timeMillis = System.currentTimeMillis();
         rhoasTokens.refresh_expiration = timeMillis + keycloak.getTokenResponse().getRefreshExpiresIn() * 1000;
         rhoasTokens.access_expiration = timeMillis + keycloak.getTokenResponse().getExpiresIn() * 1000;
-        objectMapper.writeValue(parameters.tokensPath.toFile(), rhoasTokens);
+        objectMapper.writeValue(tokensPath.toFile(), rhoasTokens);
+
         return rhoasTokens;
     }
 
-    RhoasTokens getStoredTokenResponse() {
+    private RhoasTokens getStoredTokenResponse() {
         try {
-            return objectMapper.readValue(parameters.tokensPath.toFile(), RhoasTokens.class);
+            return objectMapper.readValue(
+                    Objects.requireNonNullElseGet(
+                            tokensPath,
+                            () -> Path.of("credentials.json")
+                    ).toFile(),
+                    RhoasTokens.class
+            );
         } catch (Exception e) {
             return null;
         }
     }
 
-    public static void main(String[] args) {
-        new CommandLine(parameters).parseArgs(args);
-        int exitCode = new CommandLine(new rhosak()).execute(args);
+    public static void main(String[] args) throws IOException {
+        Rhosak rhosak = new Rhosak();
+        int exitCode = new CommandLine(rhosak).execute(args);
+        rhosak.storeTokenResponse(rhosak.keycloak);
+
         System.exit(exitCode);
+
     }
 }
