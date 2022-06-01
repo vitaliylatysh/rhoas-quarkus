@@ -8,16 +8,13 @@ import java.time.Duration;
 import java.util.*;
 
 import com.openshift.cloud.api.kas.SecurityApi;
-import com.openshift.cloud.api.kas.auth.models.ConfigEntry;
-import com.openshift.cloud.api.kas.auth.models.TopicSettings;
+import com.openshift.cloud.api.kas.auth.models.*;
 import com.openshift.cloud.api.kas.models.*;
 import org.keycloak.adapters.installed.KeycloakInstalled;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.openshift.cloud.api.kas.DefaultApi;
 import com.openshift.cloud.api.kas.auth.TopicsApi;
-import com.openshift.cloud.api.kas.auth.models.NewTopicInput;
-import com.openshift.cloud.api.kas.auth.models.Topic;
 import com.openshift.cloud.api.kas.invoker.ApiClient;
 import com.openshift.cloud.api.kas.invoker.ApiException;
 import com.openshift.cloud.api.kas.invoker.Configuration;
@@ -57,17 +54,27 @@ public class RhoasCommand implements Runnable {
             } else {
                 serviceAccount = getServiceAccount();
             }
-            secondAccessToken = getSecondToken(serviceAccount);
+            try {
+                secondAccessToken = getSecondToken(serviceAccount);
+            } catch (com.openshift.cloud.api.kas.auth.invoker.ApiException e) {
+                e.printStackTrace();
+                return;
+            }
             if (Objects.nonNull(parameters.instanceName)) {
 //                System.out.println(createInstance(parameters.instanceName));
             }
             if (Objects.nonNull(parameters.instanceTopic)) {
-                System.out.println(createInstanceTopic(parameters.instanceTopic));
+                try {
+                    Topic topic = createInstanceTopic(parameters.instanceTopic);
+                    System.out.println("topic: " + topic);
+                } catch (com.openshift.cloud.api.kas.auth.invoker.ApiException e) {
+                    e.printStackTrace();
+                }
             }
         }
     }
 
-    private String getSecondToken(ServiceAccount serviceAccount) {
+    private String getSecondToken(ServiceAccount serviceAccount) throws com.openshift.cloud.api.kas.auth.invoker.ApiException {
         String clientId = serviceAccount.getClientId();
         String clientSecret = serviceAccount.getClientSecret();
 
@@ -82,23 +89,19 @@ public class RhoasCommand implements Runnable {
         GenericType<LinkedHashMap<String, String>> returnTypeClass = new GenericType<>() {
         };
         LinkedHashMap<String, String> res = null;
-        try {
-            String URL = "/auth/realms/rhoas/protocol/openid-connect/token";
-            res = kafkaInstanceClient.invokeAPI(URL,
-                    "POST",
-                    null,
-                    null,
-                    new HashMap<>(),
-                    new HashMap<>(),
-                    formParametersMap,
-                    acceptString,
-                    contentTypeString,
-                    new String[]{"Bearer"},
-                    returnTypeClass
-            );
-        } catch (com.openshift.cloud.api.kas.auth.invoker.ApiException e) {
-            e.printStackTrace();
-        }
+        String URL = "/auth/realms/rhoas/protocol/openid-connect/token";
+        res = kafkaInstanceClient.invokeAPI(URL,
+                "POST",
+                null,
+                null,
+                new HashMap<>(),
+                new HashMap<>(),
+                formParametersMap,
+                acceptString,
+                contentTypeString,
+                new String[]{"Bearer"},
+                returnTypeClass
+        );
 
         String accessToken = Objects.requireNonNull(res).get("access_token");
         System.out.println(">>> accessToken: " + accessToken);
@@ -124,7 +127,36 @@ public class RhoasCommand implements Runnable {
         return null;
     }
 
-    private Topic createInstanceTopic(String topicName) {
+    private Topic createInstanceTopic(String topicName) throws com.openshift.cloud.api.kas.auth.invoker.ApiException {
+        NewTopicInput topicInput = getTopicInput(topicName);
+        String serverUrl = null;
+        try {
+//            serverUrl = "https://admin-server-" + managementAPI.getKafkas(null, null, null, null).getItems().get(0).getBootstrapServerHost();
+            serverUrl = getServerUrl();
+        } catch (ApiException e) {
+            e.printStackTrace();
+        }
+
+        try {
+            topicsAPI.getApiClient().setBasePath(serverUrl);
+            topicsAPI.getApiClient().setAccessToken(secondAccessToken);
+            Topic topic = topicsAPI.createTopic(topicInput);
+            System.out.println(">>> topic: " + topic);
+            return topic;
+        } catch (com.openshift.cloud.api.kas.auth.invoker.ApiException e) {
+            if (e.getCode() == 401 || e.getCode() == 403) {
+                // refresh second access token
+                secondAccessToken = getSecondToken(getServiceAccount());
+            } else {
+                e.printStackTrace();
+                throw e;
+            }
+        }
+
+        return null;
+    }
+
+    private NewTopicInput getTopicInput(String topicName) {
         NewTopicInput topicInput = new NewTopicInput();
         topicInput.setName(topicName);
         TopicSettings ts = new TopicSettings();
@@ -132,27 +164,7 @@ public class RhoasCommand implements Runnable {
         ts.setConfig(list);
         ts.setNumPartitions(1);
         topicInput.setSettings(ts);
-
-        String serverUrl = null;
-        try {
-            serverUrl = "https://admin-server-" + managementAPI.getKafkas(null, null, null, null).getItems().get(0).getBootstrapServerHost();
-        } catch (ApiException e) {
-            e.printStackTrace();
-        }
-
-        try {
-            topicsAPI.getApiClient().setBasePath(serverUrl);
-//            secondAccessToken = "eyJhbGciOiJSUzI1NiIsInR5cCIgOiAiSldUIiwia2lkIiA6ICJnakluN0lUY3BrMGlMN0QwTU9jT2xZVkc5c1pwOWR2c2dBOHJUb2FWd0s0In0.eyJleHAiOjE2NTM1NzMzNzUsImlhdCI6MTY1MzU3MzA3NSwianRpIjoiNjNmNmY5YjQtZTI3Yy00ZmQ1LTlhOTctNWNlNDA2NGI1YjI4IiwiaXNzIjoiaHR0cHM6Ly9pZGVudGl0eS5hcGkub3BlbnNoaWZ0LmNvbS9hdXRoL3JlYWxtcy9yaG9hcyIsInN1YiI6IjFmNDIyN2Q1LWY0ODMtNGVmYy1hYjExLTE4YTY2ZDg0OGFmZiIsInR5cCI6IkJlYXJlciIsImF6cCI6InNydmMtYWNjdC0wZjcxMTM5NS0zYTRlLTQ1ZjMtODFhOS01ZGVlZDY2NzYxNmYiLCJhY3IiOiIxIiwicmVhbG1fYWNjZXNzIjp7InJvbGVzIjpbIm9mZmxpbmVfYWNjZXNzIiwiZGVmYXVsdC1yb2xlcy1yaG9hcyIsInVtYV9hdXRob3JpemF0aW9uIl19LCJzY29wZSI6Im9wZW5pZCBwcm9maWxlIGVtYWlsIiwiY2xpZW50SWQiOiJzcnZjLWFjY3QtMGY3MTEzOTUtM2E0ZS00NWYzLTgxYTktNWRlZWQ2Njc2MTZmIiwiY2xpZW50SG9zdCI6IjE3Ni4zNi45LjM5IiwiZW1haWxfdmVyaWZpZWQiOmZhbHNlLCJyaC11c2VyLWlkIjoiNTUxNzQ3OTUiLCJyaC1vcmctaWQiOiIxNTk5MDgxMSIsInByZWZlcnJlZF91c2VybmFtZSI6InNlcnZpY2UtYWNjb3VudC1zcnZjLWFjY3QtMGY3MTEzOTUtM2E0ZS00NWYzLTgxYTktNWRlZWQ2Njc2MTZmIiwiY2xpZW50QWRkcmVzcyI6IjE3Ni4zNi45LjM5IiwidXNlcm5hbWUiOiJzZXJ2aWNlLWFjY291bnQtc3J2Yy1hY2N0LTBmNzExMzk1LTNhNGUtNDVmMy04MWE5LTVkZWVkNjY3NjE2ZiJ9.GlMkLIkVmDl_VM-ytMoEGKsza0gXAb8rJSWEOUmCZcVIaJ6lcHgboxx1Sb9zE8gMPirxss2Ydyk3mnW72wc2v1ySiHinJwvwRSDNxQaxwbuiB4PpHt6hbMg26LW7fZCAQm1tEPGdSyzOywGfyFoMBr2DtUJbzGQpNocq9ZsM9nq7Jc_GwtkxOJt_LBUn0legMT-BqPjLMPSa5PE9aXpgl6lWP-oNLiTRG0qmvzfOa4irySIMev2z9K5gf6w2as6lPKU64SZZos2l7fOhOxhm-ykj-ap7P1ryhdPjnwGHsQiOrXgfzPTxXnBd0J9i3QyAMa9BkKjVaeQ8XTPaJ9e_IA";
-            topicsAPI.getApiClient().setAccessToken(secondAccessToken);
-            Topic topic = topicsAPI.createTopic(topicInput);
-            System.out.println(">>> topic: " + topic);
-            return topic;
-        } catch (com.openshift.cloud.api.kas.auth.invoker.ApiException e) {
-            // TODO Auto-generated catch block
-            e.printStackTrace();
-        }
-
-        return null;
+        return topicInput;
     }
 
     /**
@@ -170,6 +182,33 @@ public class RhoasCommand implements Runnable {
         return apiClient;
     }
 
+    private String getServerUrl() throws ApiException {
+        String serverUrl = "https://admin-server-" + managementAPI.getKafkas(null, null, null, null).getItems().get(0).getBootstrapServerHost();;
+
+        return serverUrl;
+    }
+
+    private boolean isValidServiceAccount(ServiceAccount serviceAccount) throws ApiException {
+        // get second access token
+        String token = null;
+        try {
+            token = getSecondToken(serviceAccount);
+        } catch (com.openshift.cloud.api.kas.auth.invoker.ApiException e) {
+            return false;
+        }
+
+        // do something with this token (get list of topics)
+        topicsAPI.getApiClient().setBasePath(getServerUrl());
+        topicsAPI.getApiClient().setAccessToken(token);
+        try {
+            TopicsList topicsList = topicsAPI.getTopics(1,"",0, null, null);
+        } catch (com.openshift.cloud.api.kas.auth.invoker.ApiException e) {
+            return false;
+        }
+
+        return true;
+    }
+
     private ServiceAccount getServiceAccount() {
         ServiceAccount serviceAccount = null;
         try {
@@ -178,6 +217,15 @@ public class RhoasCommand implements Runnable {
             if (saFile.exists()) {
                 // read client_id & client_secret
                 serviceAccount  = objectMapper.readValue(saFile, ServiceAccount.class);
+                if (!isValidServiceAccount(serviceAccount)) {
+                    try {
+                        serviceAccount = securityAPI.getServiceAccountById(serviceAccount.getId());
+                        serviceAccount = securityAPI.resetServiceAccountCreds(serviceAccount.getId());
+                    } catch (ApiException e) {
+                        serviceAccount = createServiceAccount(serviceAccount.getName());
+                        saveServiceAccountToFile(serviceAccount);
+                    }
+                }
             } else {
                 String newServiceAccountName = "new-service-account";
                 serviceAccount = createServiceAccount(newServiceAccountName);
@@ -187,7 +235,7 @@ public class RhoasCommand implements Runnable {
                     saveServiceAccountToFile(serviceAccount);
                 }
             }
-        } catch (IOException e) {
+        } catch (IOException | ApiException e) {
             e.printStackTrace();
         }
 
