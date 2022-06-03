@@ -167,9 +167,6 @@ class KafkaListCommand implements Callable<Integer> {
 
     private final DefaultApi managementAPI;
 
-    @CommandLine.Option(names = "--name", paramLabel = "string", description = "Name of the kafka instance")
-    String instanceName;
-
     public KafkaListCommand() {
         this.managementAPI =
                 new DefaultApi(
