@@ -12,6 +12,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.openshift.cloud.api.kas.DefaultApi;
 import com.openshift.cloud.api.kas.SecurityApi;
 import com.openshift.cloud.api.kas.auth.TopicsApi;
+import com.openshift.cloud.api.kas.auth.invoker.auth.OAuth;
 import com.openshift.cloud.api.kas.auth.models.NewTopicInput;
 import com.openshift.cloud.api.kas.auth.models.Topic;
 import com.openshift.cloud.api.kas.invoker.ApiClient;
@@ -112,7 +113,7 @@ class LoginCommand implements Callable<Integer> {
     }
 }
 
-@Command(name = "kafka", mixinStandardHelpOptions = true, description = "Create, view and manage your Kafka instances", subcommands = {KafkaCreateCommand.class, KafkaListCommand.class, KafkaTopicCommand.class})
+@Command(name = "kafka", mixinStandardHelpOptions = true, description = "Create, view and manage your Kafka instances", subcommands = {KafkaCreateCommand.class, KafkaListCommand.class, KafkaTopicCommand.class, KafkaDeleteCommand.class})
 class KafkaCommand implements Callable<Integer> {
 
     @Override
@@ -164,8 +165,51 @@ class KafkaCreateCommand implements Callable<Integer> {
 @Command(name = "list", mixinStandardHelpOptions = true, description = "List all kafka instances")
 class KafkaListCommand implements Callable<Integer> {
 
+    private final DefaultApi managementAPI;
+
+    @CommandLine.Option(names = "--name", paramLabel = "string", description = "Name of the kafka instance")
+    String instanceName;
+
+    public KafkaListCommand() {
+        this.managementAPI =
+                new DefaultApi(
+                        KafkaManagementClient.getKafkaManagementAPIClientInstance()
+                );
+    }
+
     @Override
     public Integer call() {
+        try {
+            System.out.println(managementAPI.getKafkas(null, null, null, null).getItems());
+        } catch (ApiException e) {
+            throw new RuntimeException(e.getMessage());
+        }
+        return 0;
+    }
+}
+
+@Command(name = "delete", mixinStandardHelpOptions = true, description = "Delete a kafka instance")
+class KafkaDeleteCommand implements Callable<Integer> {
+
+    private final DefaultApi managementAPI;
+
+    @CommandLine.Option(names = "--id", paramLabel = "string", required = true, description = " Unique ID of the Kafka instance you want to delete")
+    String kafkaId;
+
+    public KafkaDeleteCommand() {
+        this.managementAPI =
+                new DefaultApi(
+                        KafkaManagementClient.getKafkaManagementAPIClientInstance()
+                );
+    }
+
+    @Override
+    public Integer call() {
+        try {
+            System.out.println(managementAPI.deleteKafkaById(kafkaId, true));
+        } catch (ApiException e) {
+            throw new RuntimeException(e.getMessage());
+        }
         return 0;
     }
 }
@@ -309,6 +353,39 @@ class KafkaManagementClient {
             bearer.setBearerToken(tokenString);
         }
         return kafkaManagementAPIClientInstance;
+    }
+
+    private static RhoasTokens getStoredTokenResponse() {
+        try {
+            return objectMapper.readValue(
+                    Path.of(LoginCommand.DEFAULT_CREDENTIALS_FILENAME).toFile(),
+                    RhoasTokens.class
+            );
+        } catch (Exception e) {
+            return null;
+        }
+    }
+}
+
+class KafkaInstanceClient {
+
+    private static final String API_INSTANCE_CLIENT_BASE_PATH = "https://identity.api.openshift.com";
+    private static com.openshift.cloud.api.kas.auth.invoker.ApiClient kafkaInstanceAPIClient;
+    private static final ObjectMapper objectMapper = new ObjectMapper();
+
+    private KafkaInstanceClient() {
+    }
+
+    public static com.openshift.cloud.api.kas.auth.invoker.ApiClient getKafkaInstanceAPIClient() {
+        if (kafkaInstanceAPIClient == null) {
+            kafkaInstanceAPIClient = com.openshift.cloud.api.kas.auth.invoker.Configuration.getDefaultApiClient();
+            kafkaInstanceAPIClient.setBasePath(API_INSTANCE_CLIENT_BASE_PATH);
+            String tokenString = getStoredTokenResponse().access_token;
+
+            OAuth bearer = (OAuth) kafkaInstanceAPIClient.getAuthentication("Bearer");
+            bearer.setAccessToken(tokenString);
+        }
+        return kafkaInstanceAPIClient;
     }
 
     private static RhoasTokens getStoredTokenResponse() {
