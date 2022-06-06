@@ -38,8 +38,8 @@ import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.Callable;
 
-@Command(name = "rhoasak", mixinStandardHelpOptions = true, subcommands = {LoginCommand.class, KafkaCommand.class, ServiceAccountCommand.class})
-public class Rhoasak implements Callable<Integer> {
+@Command(name = "rhosak", mixinStandardHelpOptions = true, subcommands = {LoginCommand.class, KafkaCommand.class, ServiceAccountCommand.class})
+public class Rhosak implements Callable<Integer> {
 
     @Override
     public Integer call() {
@@ -47,14 +47,14 @@ public class Rhoasak implements Callable<Integer> {
     }
 
     public static void main(String[] args) {
-        Rhoasak rhoasak = new Rhoasak();
-        int exitCode = new CommandLine(rhoasak).execute(args);
+        Rhosak rhosak = new Rhosak();
+        int exitCode = new CommandLine(rhosak).execute(args);
 
         System.exit(exitCode);
     }
 }
 
-@Command(name = "login", mixinStandardHelpOptions = true, description = "Login into RHOASAK")
+@Command(name = "login", mixinStandardHelpOptions = true, description = "Login into RHOSAK")
 class LoginCommand implements Callable<Integer> {
 
     private final ObjectMapper objectMapper;
@@ -514,6 +514,7 @@ class KafkaManagementClient {
         }
     }
 }
+
 class KafkaInstanceClient {
 
     private static final String API_INSTANCE_CLIENT_BASE_PATH = "https://identity.api.openshift.com";
@@ -549,6 +550,7 @@ class KeycloakInstance {
         return keycloak;
     }
 }
+
 class RhoasTokens {
 
     public String refresh_token;
