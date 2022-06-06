@@ -8,6 +8,7 @@
 
 package com.redhat.rhosak;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.openshift.cloud.api.kas.DefaultApi;
 import com.openshift.cloud.api.kas.SecurityApi;
@@ -107,7 +108,7 @@ class KafkaCreateCommand implements Callable<Integer> {
     public KafkaCreateCommand() {
         this.managementAPI =
                 new DefaultApi(
-                        KafkaManagementClient.getKafkaManagementAPIClientInstance()
+                        KafkaManagementClient.getKafkaManagementAPIClient()
                 );
     }
 
@@ -147,7 +148,7 @@ class KafkaListCommand implements Callable<Integer> {
     public KafkaListCommand() {
         this.managementAPI =
                 new DefaultApi(
-                        KafkaManagementClient.getKafkaManagementAPIClientInstance()
+                        KafkaManagementClient.getKafkaManagementAPIClient()
                 );
     }
 
@@ -173,7 +174,7 @@ class KafkaDeleteCommand implements Callable<Integer> {
     public KafkaDeleteCommand() {
         this.managementAPI =
                 new DefaultApi(
-                        KafkaManagementClient.getKafkaManagementAPIClientInstance()
+                        KafkaManagementClient.getKafkaManagementAPIClient()
                 );
     }
 
@@ -243,7 +244,7 @@ class KafkaTopicCreateCommand implements Callable<Integer> {
     public KafkaTopicCreateCommand() {
         this.objectMapper = new ObjectMapper();
         this.apiInstanceClient = KafkaInstanceClient.getKafkaInstanceAPIClient();
-        this.apiManagementClient = KafkaManagementClient.getKafkaManagementAPIClientInstance();
+        this.apiManagementClient = KafkaManagementClient.getKafkaManagementAPIClient();
         this.apiInstanceTopic = new TopicsApi(apiInstanceClient);
         this.managementApi = new DefaultApi(apiManagementClient);
     }
@@ -254,6 +255,7 @@ class KafkaTopicCreateCommand implements Callable<Integer> {
     @Override
     public Integer call() {
         try {
+            KafkaInstanceClient.checkTokenExpirationAndGotNewOne();
             System.out.println(createInstanceTopic(topicName));
         } catch (com.openshift.cloud.api.kas.auth.invoker.ApiException e) {
             throw new RuntimeException(e);
@@ -273,22 +275,13 @@ class KafkaTopicCreateCommand implements Callable<Integer> {
             System.out.println(">>> topic: " + topic);
             return topic;
         } catch (com.openshift.cloud.api.kas.auth.invoker.ApiException e) {
-            if (e.getCode() == 401 || e.getCode() == 403) {
-
-                //refresh
-
-            } else {
-                e.printStackTrace();
-                throw e;
-            }
+            throw new RuntimeException(e.getMessage());
         }
-
-        return null;
     }
 
     private String getServerUrl() {
         try {
-            return  "https://admin-server-" + managementApi.getKafkas(null, null, null, null).getItems().get(0).getBootstrapServerHost();
+            return "https://admin-server-" + managementApi.getKafkas(null, null, null, null).getItems().get(0).getBootstrapServerHost();
         } catch (ApiException e) {
             throw new RuntimeException("Cannot get kafka url", e.getCause());
         }
@@ -327,13 +320,13 @@ class ServiceAccountCommand implements Callable<Integer> {
 @Command(name = "create", mixinStandardHelpOptions = true)
 class ServiceAccountCreateCommand implements Callable<Integer> {
     private final ObjectMapper objectMapper;
-    private final com.openshift.cloud.api.kas.auth.invoker.ApiClient kafkaAPIInstanceClient;
+    private final com.openshift.cloud.api.kas.auth.invoker.ApiClient apiInstanceClient;
     private final SecurityApi securityAPI;
 
     public ServiceAccountCreateCommand() {
         this.objectMapper = new ObjectMapper();
-        this.kafkaAPIInstanceClient = KafkaInstanceClient.getKafkaInstanceAPIClient();
-        this.securityAPI = new SecurityApi(KafkaManagementClient.getKafkaManagementAPIClientInstance());
+        this.apiInstanceClient = KafkaInstanceClient.getKafkaInstanceAPIClient();
+        this.securityAPI = new SecurityApi(KafkaManagementClient.getKafkaManagementAPIClient());
     }
 
     @CommandLine.Option(names = "--name", paramLabel = "string", description = "Service account name")
@@ -388,7 +381,7 @@ class ServiceAccountCreateCommand implements Callable<Integer> {
         };
         String URL = "/auth/realms/rhoas/protocol/openid-connect/token";
         try {
-            Map<String, String> res = kafkaAPIInstanceClient.invokeAPI(URL,
+            Map<String, String> res = apiInstanceClient.invokeAPI(URL,
                     "POST",
                     null,
                     null,
@@ -416,9 +409,10 @@ class ServiceAccountListCommand implements Callable<Integer> {
 
     private final SecurityApi securityAPI;
 
-    public ServiceAccountListCommand(){
-        this.securityAPI = new SecurityApi(KafkaManagementClient.getKafkaManagementAPIClientInstance());
+    public ServiceAccountListCommand() {
+        this.securityAPI = new SecurityApi(KafkaManagementClient.getKafkaManagementAPIClient());
     }
+
     @Override
     public Integer call() {
         try {
@@ -438,9 +432,10 @@ class ServiceAccountDeleteCommand implements Callable<Integer> {
     @CommandLine.Option(names = "--id", paramLabel = "string", required = true, description = "The unique ID of the service account to delete")
     String name;
 
-    public ServiceAccountDeleteCommand(){
-        this.securityAPI = new SecurityApi(KafkaManagementClient.getKafkaManagementAPIClientInstance());
+    public ServiceAccountDeleteCommand() {
+        this.securityAPI = new SecurityApi(KafkaManagementClient.getKafkaManagementAPIClient());
     }
+
     @Override
     public Integer call() {
         try {
@@ -471,7 +466,7 @@ class KafkaManagementClient {
 
     private KafkaManagementClient() {}
 
-    public static ApiClient getKafkaManagementAPIClientInstance() {
+    public static ApiClient getKafkaManagementAPIClient() {
         if (kafkaManagementAPIClientInstance == null) {
             kafkaManagementAPIClientInstance = Configuration.getDefaultApiClient();
             kafkaManagementAPIClientInstance.setBasePath(API_CLIENT_BASE_PATH);
@@ -535,12 +530,61 @@ class KafkaInstanceClient {
         }
         return kafkaInstanceAPIClient;
     }
+
+    public static void checkTokenExpirationAndGotNewOne() {
+        try {
+            RhoasTokens tokens = objectMapper.readValue(Path.of(Files.RHOSAK_API_CREDS_FILE_NAME + ".json").toFile(), RhoasTokens.class);
+            String[] parts = tokens.access_token.split("\\.");
+
+            ServiceAccount serviceAccount = objectMapper.readValue(Path.of(Files.SA_FILE_NAME + ".json").toFile(), ServiceAccount.class);
+            JsonNode readValue = objectMapper.readValue(decode(parts[1]), JsonNode.class);
+
+            JsonNode expiration = readValue.get("exp");
+            if (expiration.asLong() < (System.currentTimeMillis() / 1000)) {
+                Map<String, Object> formParametersMap = new HashMap<>() {{
+                    put("grant_type", "client_credentials");
+                    put("client_id", serviceAccount.getClientId());
+                    put("client_secret", serviceAccount.getClientSecret());
+                    put("scope", "openid");
+                }};
+                GenericType<Map<String, String>> genericType = new GenericType<>() {
+                };
+                try {
+                    Map<String, String> res = kafkaInstanceAPIClient.invokeAPI(
+                            "/auth/realms/rhoas/protocol/openid-connect/token",
+                            "POST",
+                            null,
+                            null,
+                            new HashMap<>(),
+                            new HashMap<>(),
+                            formParametersMap,
+                            "application/json",
+                            "application/x-www-form-urlencoded",
+                            new String[]{"Bearer"},
+                            genericType
+                    );
+
+                    Path apiTokensFile = Path.of(Files.RHOSAK_API_CREDS_FILE_NAME + ".json");
+                    tokens.access_token = res.get("access_token");
+                    objectMapper.writeValue(apiTokensFile.toFile(), tokens);
+                } catch (com.openshift.cloud.api.kas.auth.invoker.ApiException e) {
+                    throw new RuntimeException(e);
+                }
+            }
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private static String decode(String encodedString) {
+        return new String(Base64.getUrlDecoder().decode(encodedString));
+    }
 }
 
 class KeycloakInstance {
     private static KeycloakInstalled keycloak;
 
-    private KeycloakInstance(){}
+    private KeycloakInstance() {}
 
     public static KeycloakInstalled getKeycloakInstance() {
         if (keycloak == null) {
@@ -567,7 +611,7 @@ class RhoasTokens {
     }
 }
 
-class Files{
+class Files {
     public static final String KEYCLOAK_CONFIG_FILE = "keycloak.json";
     public static final String DEFAULT_CREDENTIALS_FILENAME = "credentials.json";
     public static final String SA_FILE_NAME = System.getProperty("user.dir") + File.separator + "rhosak-sa";
