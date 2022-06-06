@@ -1,35 +1,35 @@
-## Examples how to run rhoasak
+## Examples how to run rhosak
 
 ```shell script
-jbang .\Rhoasak.java --help
+jbang .\Rhosak.java --help
 ```
 ```shell script
-jbang .\Rhoasak.java login
+jbang .\Rhosak.java login
 ```
 ```shell script
-jbang .\Rhoasak.java kafka
+jbang .\Rhosak.java kafka
 ```
 ```shell script
-jbang .\Rhoasak.java kafka list
+jbang .\Rhosak.java kafka list
 ```
 ```shell script
-jbang .\Rhoasak.java kafka create --name [name]
+jbang .\Rhosak.java kafka create --name [name]
 ```
 ```shell script
-jbang .\Rhoasak.java kafka delete --id [id]
+jbang .\Rhosak.java kafka delete --id [id]
 ```
 ```shell script
-jbang .\Rhoasak.java kafka topic create --name [name]
+jbang .\Rhosak.java kafka topic create --name [name]
 ```
 ```shell script
-jbang .\Rhoasak.java service-account list
+jbang .\Rhosak.java service-account list
 ```
 ```shell script
-jbang .\Rhoasak.java service-account create --file-format [json]
+jbang .\Rhosak.java service-account create --file-format [json]
 ```
 ```shell script
-jbang .\Rhoasak.java service-account delete --id [id]
+jbang .\Rhosak.java service-account delete --id [id]
 ```
 ```shell script
-jbang .\Rhoasak.java service-account reset-credentials
+jbang .\Rhosak.java service-account reset-credentials
 ```

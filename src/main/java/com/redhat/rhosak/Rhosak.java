@@ -38,8 +38,8 @@ import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.Callable;
 
-@Command(name = "rhoasak", mixinStandardHelpOptions = true, subcommands = {LoginCommand.class, KafkaCommand.class, ServiceAccountCommand.class})
-public class Rhoasak implements Callable<Integer> {
+@Command(name = "rhosak", mixinStandardHelpOptions = true, subcommands = {LoginCommand.class, KafkaCommand.class, ServiceAccountCommand.class})
+public class Rhosak implements Callable<Integer> {
 
     @Override
     public Integer call() {
@@ -47,14 +47,14 @@ public class Rhoasak implements Callable<Integer> {
     }
 
     public static void main(String[] args) {
-        Rhoasak rhoasak = new Rhoasak();
-        int exitCode = new CommandLine(rhoasak).execute(args);
+        Rhosak rhosak = new Rhosak();
+        int exitCode = new CommandLine(rhosak).execute(args);
 
         System.exit(exitCode);
     }
 }
 
-@Command(name = "login", mixinStandardHelpOptions = true, description = "Login into RHOASAK")
+@Command(name = "login", mixinStandardHelpOptions = true, description = "Login into RHOSAK")
 class LoginCommand implements Callable<Integer> {
 
     private final ObjectMapper objectMapper;
@@ -167,7 +167,7 @@ class KafkaDeleteCommand implements Callable<Integer> {
 
     private final DefaultApi managementAPI;
 
-    @CommandLine.Option(names = "--id", paramLabel = "string", required = true, description = " Unique ID of the Kafka instance you want to delete")
+    @CommandLine.Option(names = "--id", paramLabel = "string", required = true, description = "Unique ID of the Kafka instance you want to delete")
     String kafkaId;
 
     public KafkaDeleteCommand() {
@@ -184,6 +184,40 @@ class KafkaDeleteCommand implements Callable<Integer> {
         } catch (ApiException e) {
             throw new RuntimeException(e.getMessage());
         }
+        return 0;
+    }
+}
+
+@Command(name = "acl", mixinStandardHelpOptions = true, description = "Manage Kafka ACLs for users and service accounts", subcommands = KafkaAclCreateCommand.class)
+class KafkaAclCommand implements Callable<Integer> {
+
+    public KafkaAclCommand() {}
+
+    @Override
+    public Integer call() {
+        return 0;
+    }
+}
+
+@Command(name = "create", mixinStandardHelpOptions = true, description = "Create a Kafka ACL")
+class KafkaAclCreateCommand implements Callable<Integer> {
+
+    @CommandLine.Option(names = "--operation", paramLabel = "string", required = true, description = "Set the ACL operation. Choose from: \"all\", \"alter\", \"alter-configs\", \"create\", \"delete\", \"describe\", \"describe-configs\", \"read\", \"write\"")
+    String operation;
+
+    @CommandLine.Option(names = "--permission", paramLabel = "string", required = true, description = "Set the ACL permission. Choose from: \"allow\", \"deny\"")
+    String permission;
+
+    @CommandLine.Option(names = "--service-account", paramLabel = "string", description = "Service account client ID used as principal for this operation")
+    String serviceAccountClientID;
+
+    @CommandLine.Option(names = "--topic", paramLabel = "string", description = "Set the topic resource")
+    String topicResource;
+
+    public KafkaAclCreateCommand() {}
+
+    @Override
+    public Integer call() {
         return 0;
     }
 }
@@ -231,9 +265,10 @@ class KafkaTopicCreateCommand implements Callable<Integer> {
         NewTopicInput topicInput = getTopicInput(topicName);
         String serverUrl = getServerUrl();
 
+        apiInstanceClient.setBasePath(serverUrl);
+        apiInstanceClient.setAccessToken(rhosakApiToken());
+
         try {
-            apiInstanceTopic.getApiClient().setBasePath(serverUrl);
-            apiInstanceTopic.getApiClient().setAccessToken(rhosakApiToken());
             Topic topic = apiInstanceTopic.createTopic(topicInput);
             System.out.println(">>> topic: " + topic);
             return topic;
@@ -479,6 +514,7 @@ class KafkaManagementClient {
         }
     }
 }
+
 class KafkaInstanceClient {
 
     private static final String API_INSTANCE_CLIENT_BASE_PATH = "https://identity.api.openshift.com";
@@ -514,6 +550,7 @@ class KeycloakInstance {
         return keycloak;
     }
 }
+
 class RhoasTokens {
 
     public String refresh_token;
