@@ -1,10 +1,10 @@
+///usr/bin/env jbang "$0" "$@" ; exit $?
 //DEPS org.keycloak:keycloak-installed-adapter:18.0.0
 //DEPS com.redhat.cloud:kafka-management-sdk:0.20.2
 //DEPS com.redhat.cloud:kafka-instance-sdk:0.20.2
 //DEPS info.picocli:picocli:4.6.3
 //DEPS com.fasterxml.jackson.core:jackson-core:2.13.3
 //DEPS com.fasterxml.jackson.core:jackson-annotations:2.13.3
-//FILES ../../../../resources/META-INF/keycloak.json
 
 package com.redhat.rhosak;
 
@@ -12,12 +12,10 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.openshift.cloud.api.kas.DefaultApi;
 import com.openshift.cloud.api.kas.SecurityApi;
+import com.openshift.cloud.api.kas.auth.AclsApi;
 import com.openshift.cloud.api.kas.auth.TopicsApi;
 import com.openshift.cloud.api.kas.auth.invoker.auth.OAuth;
-import com.openshift.cloud.api.kas.auth.models.ConfigEntry;
-import com.openshift.cloud.api.kas.auth.models.NewTopicInput;
-import com.openshift.cloud.api.kas.auth.models.Topic;
-import com.openshift.cloud.api.kas.auth.models.TopicSettings;
+import com.openshift.cloud.api.kas.auth.models.*;
 import com.openshift.cloud.api.kas.invoker.ApiClient;
 import com.openshift.cloud.api.kas.invoker.ApiException;
 import com.openshift.cloud.api.kas.invoker.Configuration;
@@ -31,6 +29,7 @@ import picocli.CommandLine;
 import picocli.CommandLine.Command;
 
 import javax.ws.rs.core.GenericType;
+import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
@@ -219,6 +218,22 @@ class KafkaAclCreateCommand implements Callable<Integer> {
 
     @Override
     public Integer call() {
+//        AclsApi aclsApi = new AclsApi();
+//        AclBinding aclBinding =  new AclBinding();
+//        AclPermissionType permType = AclPermissionType.ALLOW;
+//
+//        aclBinding.setPermission(permType);
+//        aclBinding.setResourceName(topicResource);         // Topic instance name?
+//        aclBinding.setResourceType(AclResourceType.TOPIC); // Topic
+//        aclBinding.setPrincipal(serviceAccountClientID);   // SA client_id?
+//        aclBinding.setOperation(AclOperation.ALL);
+//        aclBinding.setPatternType(AclPatternType.LITERAL);
+//        try {
+//            aclsApi.createAcl(aclBinding);
+//
+//        } catch (com.openshift.cloud.api.kas.auth.invoker.ApiException e) {
+//            e.printStackTrace();
+//        }
         return 0;
     }
 }
@@ -588,7 +603,18 @@ class KeycloakInstance {
 
     public static KeycloakInstalled getKeycloakInstance() {
         if (keycloak == null) {
-            InputStream config = Thread.currentThread().getContextClassLoader().getResourceAsStream(Files.KEYCLOAK_CONFIG_FILE);
+            String initialString = "{\n" +
+                    "  \"realm\": \"redhat-external\",\n" +
+                    "  \"auth-server-url\": \"https://sso.redhat.com/auth/\",\n" +
+                    "  \"ssl-required\": \"external\",\n" +
+                    "  \"resource\": \"rhoas-cli-prod\",\n" +
+                    "  \"public-client\": true,\n" +
+                    "  \"confidential-port\": 0,\n" +
+                    "  \"use-resource-role-mappings\": true,\n" +
+                    "  \"enable-pkce\": true\n" +
+                    "}\n";
+
+            InputStream config = new ByteArrayInputStream(initialString.getBytes());
             keycloak = new KeycloakInstalled(config);
         }
         return keycloak;
